@@ -34,11 +34,146 @@ ssh-keygen -t ed25599
 
 ## MySQL setup
 
-mariadb
+### install mariadb
+
+```apt install mariadb-server mariadb-backup -y```
+
+and run 
+
+```mysql_secure_installation```
+
+### configure mariadb
+
+```/etc/mysql/mariadb.conf.d/50-server.cnf```
+
+for node mysql01 will looks like that
+
+```
+[server]
+
+[mysqld]
+
+report_host = 192.168.69.211
+read_only = 1
+
+log-bin			= /var/log/mysql/mysql01-dev-bin
+binlog_format = row
+server-id              = 211
+
+log_slave_updates
+pid-file                = /run/mysqld/mysqld.pid
+basedir                 = /usr
+
+bind-address            = 0.0.0.0
+expire_logs_days        = 10
+
+character-set-server  = utf8mb4
+collation-server      = utf8mb4_general_ci
+
+[embedded]
+
+[mariadb]
+
+[mariadb-10.11]
+```
+### add users to mysql 
+
+replication user and privileges:
+
+```CREATE USER 'repl'@'192.168.1.%' IDENTIFIED BY 'test123';```
+
+```GRANT REPLICATION SLAVE ON *.* TO `repl`@`%`;```
+
+orchestrator user and privileges:
+
+```
+CREATE USER 'orchestrator'@'192.168.1.201' IDENTIFIED BY 'orch123';
+CREATE USER 'orchestrator'@'192.168.1.202' IDENTIFIED BY 'orch123';
+CREATE USER 'orchestrator'@'192.168.1.203' IDENTIFIED BY 'orch123';
+```
+
+```
+GRANT ALL ON *.* TO 'orchestrator'@'192.168.1.201';
+GRANT ALL ON *.* TO 'orchestrator'@'192.168.1.201';
+GRANT ALL ON *.* TO 'orchestrator'@'192.168.1.201';
+```
+
+setup table with replication credentials for orchestrator:
+
+```
+CREATE TABLE `orch_meta` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `repl_user` varchar(128) DEFAULT NULL,
+  `repl_pass` varchar(128) DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci
+```
+
+and populate table with replication user/password
+
+```
+insert into orch_meta ( repl_user, repl_pass) values ( 'repl', 'test123');
+```
+create database meta
+
+```create database meta;```
+
+create table cluster inside database meta for cluster name
+
+```
+CREATE TABLE `cluster` (
+  `anchor` tinyint(4) NOT NULL,
+  `cluster_name` varchar(128) CHARACTER SET ascii COLLATE ascii_general_ci NOT NULL DEFAULT '',
+  `cluster_domain` varchar(128) CHARACTER SET ascii COLLATE ascii_general_ci NOT NULL DEFAULT '',
+  PRIMARY KEY (`anchor`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci
+```
+
+insert cluster name
+
+```
+INSERT INTO meta.cluster (anchor, cluster_name, cluster_domain) VALUES (1, 'sqltestcluster', 'testdomain.com');
+```
 
 ### setup slaves
 
+create script ```/usr/local/sbin/setup_slave.sh```
 
+```
+#!/bin/bash
+
+SLAVE=${1}
+
+: "${SLAVE:?SLAVE not specified. example run: ./setup_slave.sh [SLAVE]}"
+
+read -s -p "Enter password for repl user: " password
+
+read -p "You about to setup ${SLAVE} as replica to current server. Do you want to continue? (y/n): " answer
+case "$answer" in
+    [Yy]* ) 
+        echo "Continuing...";;
+    [Nn]* ) 
+        echo "Exiting script."; 
+        exit 1;;
+    * ) 
+        echo "Invalid input. Please answer y or n."; 
+        exit 1;;
+esac
+
+rm -rf /backup/*
+mariabackup --backup --slave-info --safe-slave-backup --target-dir=/backup
+scp -r /backup mysql01-dev:/
+ssh ${SLAVE} "systemctl stop mysqld ; rm -rf /var/log/mysql/* ; rm -rf /var/lib/mysql/* ; mariabackup --prepare --target-dir=/backup ; cp -r /backup/* /var/lib/mysql/ ; chown -R mysql:mysql /var/lib/mysql ; systemctl restart mysqld"
+
+mysql -h ${SLAVE} -N -se "CHANGE MASTER TO MASTER_HOST='`hostname -s`', MASTER_USER='repl', MASTER_PASSWORD='`${password}`', MASTER_PORT=3306, MASTER_CONNECT_RETRY=10, master_use_gtid=slave_pos; start slave;"
+```
+
+setup replica on mysql02 and mysql03 simply running 
+
+```
+/usr/local/sbin/setup_slave.sh mysql02
+/usr/local/sbin/setup_slave.sh mysql03
+```
 
 ## haproxy
 

@@ -18,12 +18,12 @@ ssh-keygen -t ed25599
 
 ```/etc/hosts```
 
-```192.168.1.201 haproxy01
+192.168.1.201 haproxy01
 192.168.1.202 haproxy02
 192.168.1.203 haproxy03
 192.168.1.211 mysql01
 192.168.1.212 mysql02
-192.168.1.213 mysql03```
+192.168.1.213 mysql03
 
 ## MySQL setup
 

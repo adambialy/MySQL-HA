@@ -1,6 +1,11 @@
 # MySQL-HA
 mysql ha setup with haproxy/orchestrator/mariadb on debian12
 
+## Overview
+
+![Overview](images/mysql-orchestrator.jpg)
+
+
 ## Prereq
 
 Setup 6 nodes with Debian12 - 3X mysql and 3X haproxy.

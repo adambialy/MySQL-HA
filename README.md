@@ -60,7 +60,7 @@ service readonlycheck
     server          = /usr/local/bin/readonlycheck.sh
     port            = 9201
     type            = UNLISTED
-    only_from       = 127.0.0.1 192.168.69.0/24
+    only_from       = 127.0.0.1 192.168.1.0/24
     log_on_failure  += USERID
 }
 ```

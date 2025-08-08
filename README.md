@@ -37,7 +37,138 @@ mariadb
 
 ## haproxy
 
-follow link to install haproxy
+follow link to install haproxy https://haproxy.debian.net/#distribution=Debian&release=bookworm&version=3.2
+
+```
+curl https://haproxy.debian.net/haproxy-archive-keyring.gpg > /usr/share/keyrings/haproxy-archive-keyring.gpg
+echo deb "[signed-by=/usr/share/keyrings/haproxy-archive-keyring.gpg]" http://haproxy.debian.net bookworm-backports-3.2 main > /etc/apt/sources.list.d/haproxy.list
+apt-get update
+apt-get install haproxy=3.2.\*
+```
+
+create haproxy config
+
+```
+global
+    log /dev/log local0
+    maxconn 15000
+    daemon
+    stats socket /var/run/haproxy.sock mode 600 level admin
+    user haproxy
+    group haproxy
+
+defaults
+    log global
+    mode tcp
+    timeout connect 10s
+    timeout client 1m
+    timeout server 1m
+    option tcpka
+
+frontend mysql-write
+    bind *:3306
+    default_backend mysql-master
+
+backend mysql-master
+    mode tcp
+    option httpchk
+
+    server mysql01-dev 192.168.1.211:3306 check port 9201
+    server mysql02-dev 192.168.1.212:3306 check port 9201
+    server mysql03-dev 192.168.1.213:3306 check port 9201
+
+listen stats # Define a listen section called "stats"
+	bind 0.0.0.0:9000 # Listen on localhost:9000
+	mode http
+	stats enable  # Enable stats page
+	stats refresh 2s
+	stats hide-version  # Hide HAProxy version
+	stats realm Haproxy\ Statistics  # Title text for popup window
+	stats uri /haproxy_stats  # Stats URI
+	stats auth admin:test123456  # Authentication credentials
+	stats admin if TRUE
+```
+
+disable and stop haproxy for now
+
+```systemctl disable --now haproxy```
+
+copy confg to all haproxy nodes
+
+```
+scp /etc/haproxy.haproxy.cfg haproxy02:/etc/haproxy/ ; ssh haproxy02 "`systemctl disable --now haproxy"
+scp /etc/haproxy.haproxy.cfg haproxy03:/etc/haproxy/ ; ssh haproxy03 "`systemctl disable --now haproxy"
+```
+
+## corosync/packemaker
+
+### install
+
+```apt install corosync crmsh pacemaker pcs pacemaker-resource-agents```
+
+### configuration
+
+
+```
+totem {
+  version: 2
+  cluster_name: haproxy
+  transport: udpu
+  interface {
+    ringnumber: 0
+    broadcast: yes
+    mcastport: 5405
+  }
+}
+
+quorum {
+  provider: corosync_votequorum
+  two_node: 1
+}
+
+nodelist {
+
+ 		node {
+                        ring0_addr: 192.168.1.201
+                        name: haproxy01
+ 			nodeid: 1
+
+		}
+ 		node {
+                        ring0_addr: 192.168.1.202
+                        name: haproxy02
+ 			nodeid: 2
+
+		}
+ 		node {
+                        ring0_addr: 192.168.1.203
+                        name: haproxy03
+ 			nodeid: 3
+
+		}
+ 
+}
+
+logging {
+  to_logfile: yes
+  logfile: /var/log/corosync/corosync.log
+  to_syslog: yes
+  timestamp: on
+}
+
+```
+
+resources config
+
+```
+crm configure property stonith-enabled=false
+crm configure property no-quorum-policy=ignore
+crm configure primitive vip-haproxy ocf:heartbeat:IPaddr2 params ip='192.168.1.200' nic=ens192 cidr_netmask='32' op monitor interval='5s' meta migration-threshold='10'
+crm resource start vip-haproxy
+pcs constraint location vip-haproxy prefers haproxy01=100
+resource create srv-haproxy systemd:haproxy
+pcs constraint colocation add vip-haproxy with srv-haproxy INFINITY
+```
 
 ### xinetd on mysql servers
 
@@ -141,12 +272,12 @@ create orchestrator config file ```/etc/orchestrator.conf.json```
   ],
   "RaftEnabled": true,
   "RaftDataDir": "/var/lib/orchestrator",
-  "RaftBind": "192.168.1.128",
+  "RaftBind": "192.168.1.20",
   "DefaultRaftPort": 10008,
   "RaftNodes": [
-    "192.168.1.128",
-    "192.168.1.212",
-    "192.168.1.213"
+    "192.168.1.201",
+    "192.168.1.202",
+    "192.168.1.203"
   ],
   "WebRefreshSeconds": 10,
   "UnseenInstanceForgetHours": 240,
@@ -276,5 +407,12 @@ start and enable orchestrator
 
 ```systemctl enable --now orchestrator```
 
+copy same config to rest of the nodes, and change config config line to node ip address
+
+```
+  "RaftBind": "192.168.1.201",
+```
+
+at this point you should have orchestrator running with sqlite backend and raft clustering
 
 

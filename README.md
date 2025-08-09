@@ -3,8 +3,34 @@ mysql ha setup with haproxy/orchestrator/mariadb on debian12
 
 ## Overview
 
-![Overview](images/mysql-orchestrator.jpg)
 
+## Objective
+Create a highly available MySQL cluster using simple master–slave replication, without Galera or XtraDB.
+
+## Architecture
+
+- **Replication**: One master and two slaves, running MariaDB with GTID enabled.
+- **HA Layer**:  
+  - **Corosync** + **Pacemaker** manage:
+    - **HAProxy** for routing traffic.
+    - A **virtual IP** for a single, consistent application endpoint.
+  - HAProxy determines the master by checking the MySQL `read_only` flag.
+- **Topology Management**:  
+  - **Orchestrator** in HA mode (Raft) handles:
+    - Automatic master promotion.
+    - Replica management.
+    - Failover and recovery.
+
+## Workflow
+
+1. Applications connect to the **virtual IP** managed by Pacemaker.
+2. **HAProxy** routes traffic to the master server.
+3. **Orchestrator** monitors replication status and promotes a slave to master if needed.
+4. Pacemaker/HAProxy update routing to reflect the new master.
+
+## Topology diagram
+
+![Overview](images/mysql-orchestrator.jpg)
 
 ## Prereq
 
@@ -13,11 +39,6 @@ Setup 6 nodes with Debian12 - 3X mysql and 3X haproxy.
 And update them:
 
 ```apt update; apt upgrade -y; reboot```
-
-
-Before start for simplicity add keys so you can login to each node without password.
-
-ssh-keygen -t ed25599
 
 ### Configure /etc/hosts on all nodes
 
@@ -31,6 +52,21 @@ ssh-keygen -t ed25599
 192.168.1.212 mysql02
 192.168.1.213 mysql03
 ```
+
+### create and distibute ssh keys
+
+Before start for simplicity generate ssh keys and add them to all of the nodes, so you can login to each node without password.
+
+```ssh-keygen -t ed25519```
+
+copy pub key everywhere
+
+```for I in haproxy01 haproxy02 haproxy03 mysql01 mysql02 mysql03; do ssh-copy-id -i /root/.ssh/id_ed25519 root@${I}; done```
+
+copy private keys everywhere
+
+```for I in haproxy01 haproxy02 haproxy03 mysql01 mysql02 mysql03; scp /root/.ssh/id_ed25519* root@${I} /root/.ssh/ ;done```
+
 
 ## MySQL setup
 
@@ -76,7 +112,20 @@ collation-server      = utf8mb4_general_ci
 
 [mariadb-10.11]
 ```
+for nodes mysql02/03 only difference will be
+
+```
+report_host	= 192.168.69.212
+server-id	= 212
+```
+```
+report_host	= 192.168.69.213
+server-id	= 213
+```
+
 ### add users to mysql 
+
+On mysql01 node setup
 
 replication user and privileges:
 
@@ -135,7 +184,7 @@ insert cluster name
 INSERT INTO meta.cluster (anchor, cluster_name, cluster_domain) VALUES (1, 'sqltestcluster', 'testdomain.com');
 ```
 
-### setup slaves
+### setup slaves on mysql02/03
 
 create script ```/usr/local/sbin/setup_slave.sh```
 
@@ -175,7 +224,7 @@ setup replica on mysql02 and mysql03 simply running
 /usr/local/sbin/setup_slave.sh mysql03
 ```
 
-## haproxy
+# haproxy
 
 follow link to install haproxy https://haproxy.debian.net/#distribution=Debian&release=bookworm&version=3.2
 

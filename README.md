@@ -1,7 +1,7 @@
 # MySQL-HA
 mysql ha setup with haproxy/orchestrator/mariadb on debian12
 
-## Overview
+# Overview
 
 
 ## Objective
@@ -32,7 +32,7 @@ Create a highly available MySQL cluster using simple master–slave replication,
 
 ![Overview](images/mysql-orchestrator.jpg)
 
-## Prereq
+# Prereq
 
 Setup 6 nodes with Debian12 - 3X mysql and 3X haproxy.
 
@@ -68,9 +68,9 @@ copy private keys everywhere
 ```for I in haproxy01 haproxy02 haproxy03 mysql01 mysql02 mysql03; scp /root/.ssh/id_ed25519* root@${I} /root/.ssh/ ;done```
 
 
-## MySQL setup
+# MySQL setup
 
-### install mariadb
+## install mariadb
 
 ```apt install mariadb-server mariadb-backup -y```
 
@@ -78,7 +78,7 @@ and run
 
 ```mysql_secure_installation```
 
-### configure mariadb
+## configure mariadb
 
 ```/etc/mysql/mariadb.conf.d/50-server.cnf```
 
@@ -112,7 +112,7 @@ collation-server      = utf8mb4_general_ci
 
 [mariadb-10.11]
 ```
-for nodes mysql02/03 only difference will be
+### for nodes mysql02/03 only difference will be
 
 ```
 report_host	= 192.168.69.212
@@ -133,7 +133,7 @@ replication user and privileges:
 
 ```GRANT REPLICATION SLAVE ON *.* TO `repl`@`%`;```
 
-orchestrator user and privileges:
+### add orchestrator user and privileges:
 
 ```
 CREATE USER 'orchestrator'@'192.168.1.201' IDENTIFIED BY 'orch123';
@@ -147,7 +147,7 @@ GRANT ALL ON *.* TO 'orchestrator'@'192.168.1.201';
 GRANT ALL ON *.* TO 'orchestrator'@'192.168.1.201';
 ```
 
-setup table with replication credentials for orchestrator:
+### setup table with replication credentials for orchestrator:
 
 ```
 CREATE TABLE `orch_meta` (
@@ -158,16 +158,16 @@ CREATE TABLE `orch_meta` (
 ) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci
 ```
 
-and populate table with replication user/password
+### and populate table with replication user/password
 
 ```
 insert into orch_meta ( repl_user, repl_pass) values ( 'repl', 'test123');
 ```
-create database meta
+### create database meta
 
 ```create database meta;```
 
-create table cluster inside database meta for cluster name
+### create table cluster inside database meta for cluster name
 
 ```
 CREATE TABLE `cluster` (
@@ -178,13 +178,13 @@ CREATE TABLE `cluster` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci
 ```
 
-insert cluster name
+### insert cluster name
 
 ```
 INSERT INTO meta.cluster (anchor, cluster_name, cluster_domain) VALUES (1, 'sqltestcluster', 'testdomain.com');
 ```
 
-### setup slaves on mysql02/03
+## setup slaves on mysql02/03
 
 create script ```/usr/local/sbin/setup_slave.sh```
 
@@ -217,7 +217,7 @@ ssh ${SLAVE} "systemctl stop mysqld ; rm -rf /var/log/mysql/* ; rm -rf /var/lib/
 mysql -h ${SLAVE} -N -se "CHANGE MASTER TO MASTER_HOST='`hostname -s`', MASTER_USER='repl', MASTER_PASSWORD='`${password}`', MASTER_PORT=3306, MASTER_CONNECT_RETRY=10, master_use_gtid=slave_pos; start slave;"
 ```
 
-setup replica on mysql02 and mysql03 simply running 
+### setup replica on mysql02 and mysql03 simply running 
 
 ```
 /usr/local/sbin/setup_slave.sh mysql02
@@ -225,6 +225,8 @@ setup replica on mysql02 and mysql03 simply running
 ```
 
 # haproxy
+
+## install haproxy
 
 follow link to install haproxy https://haproxy.debian.net/#distribution=Debian&release=bookworm&version=3.2
 
@@ -235,7 +237,7 @@ apt-get update
 apt-get install haproxy=3.2.\*
 ```
 
-create haproxy config
+### create haproxy config
 
 ```
 global
@@ -289,14 +291,15 @@ scp /etc/haproxy.haproxy.cfg haproxy02:/etc/haproxy/ ; ssh haproxy02 "`systemctl
 scp /etc/haproxy.haproxy.cfg haproxy03:/etc/haproxy/ ; ssh haproxy03 "`systemctl disable --now haproxy"
 ```
 
-## corosync/packemaker
+# corosync/packemaker
 
-### install
+## install
 
 ```apt install corosync crmsh pacemaker pcs pacemaker-resource-agents```
 
-### configuration
+## configuration
 
+```/etc/corosync/corosync.conf```
 
 ```
 totem {
@@ -359,11 +362,13 @@ resource create srv-haproxy systemd:haproxy
 pcs constraint colocation add vip-haproxy with srv-haproxy INFINITY
 ```
 
-### xinetd on mysql servers
+# xinetd on mysql servers
+
+## install 
 
 ```apt install xinetd -y```
 
-configure:
+## configure
 
 ```/etc/xinetd.d/readonlycheck```
 
@@ -420,9 +425,9 @@ restart and enable xinetd:
 ```systemctl restart --now xinetd```
 
 
-## orchestrator install on haproxy servers
+# orchestrator install on haproxy servers
 
-download orchestrator:
+## install
 
 ```
 wget wget https://github.com/openark/orchestrator/releases/download/v3.2.6/orchestrator-3.2.6-linux-amd64.tar.gz
@@ -430,6 +435,7 @@ tar zxvf orchestrator-3.2.6-linux-amd64.tar.gz -C /
 ln -s /usr/local/orchestrator/resources/bin/orchestrator-client /usr/bin/
 systemctl daemon-reload
 ```
+## configure
 
 create orchestrator config file ```/etc/orchestrator.conf.json```
 
@@ -592,11 +598,11 @@ create orchestrator config file ```/etc/orchestrator.conf.json```
 
 ```
 
-start and enable orchestrator
+### start and enable orchestrator
 
 ```systemctl enable --now orchestrator```
 
-copy same config to rest of the nodes, and change config config line to node ip address
+### copy same config to rest of the nodes, and change config config line to node ip address
 
 ```
   "RaftBind": "192.168.1.201",
